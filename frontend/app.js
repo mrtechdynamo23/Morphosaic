@@ -463,10 +463,13 @@ class MosaicRenderer {
       new THREE.InstancedBufferAttribute(data.colors, 3)
     );
 
+    this.data = data;
+    const sizes = this.computePointSizes();
     const material = new THREE.RawShaderMaterial({
       uniforms: {
         uProgress: { value: 0.0 },
-        uPointSize: { value: this.computePointSize(data.count) },
+        uStartSize: { value: sizes.start },
+        uEndSize: { value: sizes.end },
         uHoldTime: { value: CONFIG.HOLD_MS / CONFIG.ANIMATION_DURATION_MS },
       },
       vertexShader: this.vertexShader(),
@@ -481,12 +484,17 @@ class MosaicRenderer {
     this.scene.add(this.mesh);
   }
 
-  computePointSize(count) {
-    const area = this.canvas.clientWidth * this.canvas.clientHeight;
-    const density = count / area;
-    if (density > 2) return 1.0;
-    if (density > 1) return 1.5;
-    return 2.0;
+  computePointSizes() {
+    const bufW = this.canvas.width;
+    const bufH = this.canvas.height;
+    const gl = this.renderer.getContext();
+    const maxSize = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1];
+    const fit = (w, h) =>
+      Math.min(maxSize, Math.max(1, Math.ceil(Math.max(bufW / w, bufH / h))));
+    return {
+      start: fit(this.data.srcW, this.data.srcH),
+      end: fit(this.data.tgtW, this.data.tgtH),
+    };
   }
 
   vertexShader() {
@@ -501,10 +509,12 @@ class MosaicRenderer {
       attribute vec3 aColor;
 
       uniform float uProgress;
-      uniform float uPointSize;
+      uniform float uStartSize;
+      uniform float uEndSize;
       uniform float uHoldTime;
 
       varying vec3 vColor;
+      varying float vT;
 
       float easeOutExpo(float t) {
         return t >= 1.0 ? 1.0 : 1.0 - pow(2.0, -10.0 * t);
@@ -522,10 +532,11 @@ class MosaicRenderer {
         float y = -(mix(aStartY, aEndY, t) * 2.0 - 1.0);
 
         gl_Position = vec4(x, y, 0.0, 1.0);
-        gl_PointSize = uPointSize;
+        gl_PointSize = mix(uStartSize, uEndSize, t);
 
         // Particles keep their true source-pixel color for the whole flight.
         vColor = aColor;
+        vT = t;
       }
     `;
   }
@@ -534,11 +545,11 @@ class MosaicRenderer {
     return `
       precision mediump float;
       varying vec3 vColor;
+      varying float vT;
 
       void main() {
-        // Circular discard for round particles.
         vec2 coord = gl_PointCoord - 0.5;
-        if (dot(coord, coord) > 0.25) discard;
+        if (dot(coord, coord) > mix(0.25, 0.5, vT)) discard;
         gl_FragColor = vec4(vColor, 1.0);
       }
     `;
@@ -585,7 +596,12 @@ class MosaicRenderer {
       this.canvas.clientHeight,
       false
     );
-    if (this.mesh) this.renderer.render(this.scene, this.camera);
+    if (this.mesh) {
+      const sizes = this.computePointSizes();
+      this.mesh.material.uniforms.uStartSize.value = sizes.start;
+      this.mesh.material.uniforms.uEndSize.value = sizes.end;
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 }
 
