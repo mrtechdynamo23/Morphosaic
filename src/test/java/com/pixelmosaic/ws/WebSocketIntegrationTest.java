@@ -54,7 +54,7 @@ class WebSocketIntegrationTest {
     @Test
     void fullRoundTrip() throws Exception {
         byte[] source = pngImage(96, 96, true);
-        byte[] target = pngImage(96, 96, false);
+        byte[] target = pngImage(300, 300, false);
 
         WebSocketContainer container = ContainerProvider.getWebSocketContainer();
         container.setDefaultMaxBinaryMessageBufferSize(20 * 1024 * 1024);
@@ -70,6 +70,9 @@ class WebSocketIntegrationTest {
             assertTrue(handler.particleCount > 0, "particle_count should be > 0");
             assertEquals((long) handler.particleCount * 12, handler.payloadBytes,
                     "payload bytes should equal particleCount * 12");
+            assertEquals((handler.payloadBytes + 262_143) / 262_144, handler.payloadFrames,
+                    "payload should arrive as one message per 256 KB chunk");
+            assertTrue(handler.payloadFrames > 1, "test payload should span several chunks");
         } finally {
             session.close();
         }
@@ -123,6 +126,7 @@ class WebSocketIntegrationTest {
         volatile int headerMagic;
         volatile int particleCount;
         volatile long payloadBytes;
+        volatile int payloadFrames;
         private boolean headerSeen;
 
         TestClientHandler(byte[] source, byte[] target) {
@@ -172,6 +176,7 @@ class WebSocketIntegrationTest {
                 headerMagic = payload.getInt();
             } else {
                 payloadBytes += payload.remaining();
+                payloadFrames++;
             }
         }
     }

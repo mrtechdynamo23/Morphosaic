@@ -284,8 +284,7 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
             int size = Math.min(chunkSize, payload.remaining());
             byte[] chunk = new byte[size];
             payload.get(chunk);
-            boolean isLast = !payload.hasRemaining();
-            out.sendMessage(new BinaryMessage(chunk, isLast));
+            out.sendMessage(new BinaryMessage(chunk));
         }
 
         sendJson(session, Map.of("type", "complete", "particle_count", result.particleCount()));
