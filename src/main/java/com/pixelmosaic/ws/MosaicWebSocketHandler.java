@@ -20,6 +20,8 @@ import org.springframework.web.socket.handler.AbstractWebSocketHandler;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 
 import java.io.IOException;
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -76,7 +78,6 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final int chunkSize;
     private final long maxImageBytes;
-    private final boolean behindProxy;
     private final int trustedProxyHops;
     private final UsageStats usageStats;
 
@@ -88,7 +89,6 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
                                   ObjectMapper objectMapper,
                                   @Value("${pixelmosaic.chunk-size-bytes}") int chunkSize,
                                   @Value("${pixelmosaic.max-image-bytes}") long maxImageBytes,
-                                  @Value("${pixelmosaic.behind-proxy}") boolean behindProxy,
                                   @Value("${pixelmosaic.trusted-proxy-hops}") int trustedProxyHops) {
         this.admissionQueue = admissionQueue;
         this.rateLimiter = rateLimiter;
@@ -98,8 +98,7 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
         this.objectMapper = objectMapper;
         this.chunkSize = chunkSize;
         this.maxImageBytes = maxImageBytes;
-        this.behindProxy = behindProxy;
-        this.trustedProxyHops = Math.max(1, trustedProxyHops);
+        this.trustedProxyHops = Math.max(0, trustedProxyHops);
     }
 
     @Override
@@ -340,24 +339,31 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
     }
 
     private String clientIp(WebSocketSession session) {
-        List<String> headers = session.getHandshakeHeaders().get("X-Forwarded-For");
-        if (headers != null) {
-            List<String> hops = headers.stream()
-                    .flatMap(h -> Arrays.stream(h.split(",")))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .toList();
-            if (!hops.isEmpty()) {
-                log.debug("Connection {}: X-Forwarded-For {}", session.getId(), hops);
-                return hops.get(Math.max(0, hops.size() - trustedProxyHops));
-            }
+        if (trustedProxyHops == 0) {
+            InetSocketAddress remote = session.getRemoteAddress();
+            return remote != null && remote.getAddress() != null
+                    ? rateLimitKey(remote.getAddress())
+                    : null;
         }
-        if (behindProxy) {
+        List<String> headers = session.getHandshakeHeaders().get("X-Forwarded-For");
+        if (headers == null) {
             return null;
         }
-        InetSocketAddress remote = session.getRemoteAddress();
-        return remote != null && remote.getAddress() != null
-                ? remote.getAddress().getHostAddress()
-                : null;
+        List<String> hops = headers.stream()
+                .flatMap(h -> Arrays.stream(h.split(",")))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+        return hops.isEmpty() ? null : hops.get(Math.max(0, hops.size() - trustedProxyHops));
+    }
+
+    static String rateLimitKey(InetAddress address) {
+        if (address instanceof Inet6Address) {
+            byte[] b = address.getAddress();
+            return String.format("%x:%x:%x:%x::/64",
+                    ((b[0] & 0xFF) << 8) | (b[1] & 0xFF), ((b[2] & 0xFF) << 8) | (b[3] & 0xFF),
+                    ((b[4] & 0xFF) << 8) | (b[5] & 0xFF), ((b[6] & 0xFF) << 8) | (b[7] & 0xFF));
+        }
+        return address.getHostAddress();
     }
 }

@@ -169,7 +169,7 @@ Set these in `src/main/resources/application.yml` or as environment variables.
 | `pixelmosaic.max-concurrent` | `2` | mosaics processed at once |
 | `pixelmosaic.max-queued` | `8` | requests that can wait in line; more are turned away |
 | `pixelmosaic.rate-limit-per-hour` | `30` | requests per IP per hour |
-| `pixelmosaic.trusted-proxy-hops` | `1` | proxies in front of the app that append to `X-Forwarded-For` |
+| `pixelmosaic.trusted-proxy-hops` | `0` | proxies in front of the app that append to `X-Forwarded-For` |
 | `ADMIN_TOKEN` | *(unset)* | enables `GET /admin/stats` (send it in the `X-Admin-Token` header) |
 </details>
 
