@@ -40,3 +40,6 @@ build/
 
 ### Maven shade (generated) ###
 dependency-reduced-pom.xml
+
+### Environment Variables
+.env
