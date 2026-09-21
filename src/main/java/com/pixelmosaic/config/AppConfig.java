@@ -3,6 +3,7 @@ package com.pixelmosaic.config;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
+import com.pixelmosaic.admission.AdmissionQueue;
 import com.pixelmosaic.pipeline.BufferPool;
 import com.pixelmosaic.pipeline.ImageDecoder;
 import com.pixelmosaic.pipeline.ImageProcessor;
@@ -25,7 +26,6 @@ import java.nio.file.StandardCopyOption;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -75,9 +75,20 @@ public class AppConfig {
                 daemonThreadFactory("request-orchestrator-"));
     }
 
+    @Bean(destroyMethod = "shutdown")
+    public ExecutorService streamExecutor(@Value("${pixelmosaic.max-streams}") int maxStreams) {
+        return new ThreadPoolExecutor(
+                maxStreams, maxStreams,
+                0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(),
+                daemonThreadFactory("payload-stream-"));
+    }
+
     @Bean
-    public Semaphore admissionSemaphore(@Value("${pixelmosaic.max-concurrent}") int max) {
-        return new Semaphore(max, true);
+    public AdmissionQueue admissionQueue(@Value("${pixelmosaic.max-concurrent}") int maxConcurrent,
+                                         @Value("${pixelmosaic.max-queued}") int maxQueued,
+                                         @Qualifier("requestExecutor") ExecutorService requestExecutor) {
+        return new AdmissionQueue(maxConcurrent, maxQueued, requestExecutor);
     }
 
     @Bean

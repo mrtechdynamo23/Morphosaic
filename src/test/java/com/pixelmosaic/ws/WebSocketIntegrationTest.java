@@ -20,6 +20,10 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -33,7 +37,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the classpath; if it is absent the whole class is disabled (the context can't start without
  * the {@code OrtSession} bean). Synthetic PNGs keep the payload small and inference fast.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "pixelmosaic.admin-token=test-token")
 @EnabledIf("modelAvailable")
 class WebSocketIntegrationTest {
 
@@ -68,6 +73,25 @@ class WebSocketIntegrationTest {
         } finally {
             session.close();
         }
+
+        HttpClient http = HttpClient.newHttpClient();
+        URI statsUri = URI.create("http://localhost:" + port + "/admin/stats");
+
+        HttpResponse<String> anonymous = http.send(
+                HttpRequest.newBuilder(statsUri).build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(404, anonymous.statusCode(), "stats must be hidden without the token");
+
+        HttpResponse<String> wrong = http.send(
+                HttpRequest.newBuilder(statsUri).header("X-Admin-Token", "nope").build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(404, wrong.statusCode(), "stats must be hidden with a wrong token");
+
+        HttpResponse<String> authorized = http.send(
+                HttpRequest.newBuilder(statsUri).header("X-Admin-Token", "test-token").build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, authorized.statusCode());
+        JsonNode stats = new ObjectMapper().readTree(authorized.body());
+        assertTrue(stats.path("processed").asLong() >= 1, "processed count should include this run");
     }
 
     private static byte[] pngImage(int w, int h, boolean circle) throws Exception {
@@ -125,6 +149,8 @@ class WebSocketIntegrationTest {
                 case "accepted" -> {
                     session.sendMessage(new BinaryMessage(source));
                     session.sendMessage(new BinaryMessage(target));
+                }
+                case "processing", "queued" -> {
                 }
                 case "complete" -> {
                     particleCount = node.path("particle_count").asInt();

@@ -2,9 +2,11 @@ package com.pixelmosaic.ws;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pixelmosaic.admission.AdmissionQueue;
 import com.pixelmosaic.admission.RateLimiterService;
 import com.pixelmosaic.pipeline.MosaicPipeline;
 import com.pixelmosaic.pipeline.MosaicResult;
+import com.pixelmosaic.stats.UsageStats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -15,16 +17,18 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.AbstractWebSocketHandler;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Semaphore;
 
 /**
  * WebSocket protocol for one mosaic request:
@@ -32,12 +36,14 @@ import java.util.concurrent.Semaphore;
  *   <li>client sends a {@code begin_request} JSON control frame (declared sizes + format);</li>
  *   <li>server replies {@code accepted} with a request id;</li>
  *   <li>client sends the source image as one binary frame, then the target image;</li>
- *   <li>server processes off the I/O thread, then streams a 32-byte binary header, the
- *       particle payload in 256&nbsp;KB chunks, and a final {@code complete} JSON frame.</li>
+ *   <li>server replies {@code processing}, or {@code queued} with the client's position (repeated
+ *       as it changes) followed by {@code processing}, or {@code rejected} if the line is full;</li>
+ *   <li>server streams a 32-byte binary header, the particle payload in 256&nbsp;KB chunks, and a
+ *       final {@code complete} JSON frame.</li>
  * </ol>
  *
- * Admission is two-layered: per-IP hourly rate limiting at connect time, and a global
- * concurrency semaphore at processing time (excess requests are rejected as {@code server_busy}).
+ * Admission is two-layered: per-IP hourly rate limiting at connect time, and a bounded FIFO
+ * queue at processing time. Only processing holds a slot; streaming the result does not.
  */
 @Component
 public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
@@ -49,45 +55,58 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
     private static final int PROTOCOL_VERSION = 1;
     private static final int HEADER_BYTES = 32;
 
+    private static final int SEND_TIME_LIMIT_MS = 30_000;
+
     private static final String ATTR_STATE = "state";
     private static final String ATTR_SOURCE = "sourceBytes";
     private static final String ATTR_TARGET = "targetBytes";
     private static final String ATTR_REQUEST_ID = "requestId";
+    private static final String ATTR_OUT = "out";
+    private static final String ATTR_JOB = "job";
 
     private static final Set<String> ALLOWED_FORMATS =
             Set.of("image/jpeg", "image/png", "image/webp");
 
     enum State {AWAITING_BEGIN, AWAITING_SOURCE, AWAITING_TARGET, PROCESSING}
 
-    private final Semaphore admissionSemaphore;
+    private final AdmissionQueue admissionQueue;
     private final RateLimiterService rateLimiter;
     private final MosaicPipeline pipeline;
-    private final ExecutorService requestExecutor;
+    private final ExecutorService streamExecutor;
     private final ObjectMapper objectMapper;
     private final int chunkSize;
     private final long maxImageBytes;
     private final boolean behindProxy;
+    private final int trustedProxyHops;
+    private final UsageStats usageStats;
 
-    public MosaicWebSocketHandler(Semaphore admissionSemaphore,
+    public MosaicWebSocketHandler(AdmissionQueue admissionQueue,
                                   RateLimiterService rateLimiter,
                                   MosaicPipeline pipeline,
-                                  @Qualifier("requestExecutor") ExecutorService requestExecutor,
+                                  UsageStats usageStats,
+                                  @Qualifier("streamExecutor") ExecutorService streamExecutor,
                                   ObjectMapper objectMapper,
                                   @Value("${pixelmosaic.chunk-size-bytes}") int chunkSize,
                                   @Value("${pixelmosaic.max-image-bytes}") long maxImageBytes,
-                                  @Value("${pixelmosaic.behind-proxy}") boolean behindProxy) {
-        this.admissionSemaphore = admissionSemaphore;
+                                  @Value("${pixelmosaic.behind-proxy}") boolean behindProxy,
+                                  @Value("${pixelmosaic.trusted-proxy-hops}") int trustedProxyHops) {
+        this.admissionQueue = admissionQueue;
         this.rateLimiter = rateLimiter;
         this.pipeline = pipeline;
-        this.requestExecutor = requestExecutor;
+        this.usageStats = usageStats;
+        this.streamExecutor = streamExecutor;
         this.objectMapper = objectMapper;
         this.chunkSize = chunkSize;
         this.maxImageBytes = maxImageBytes;
         this.behindProxy = behindProxy;
+        this.trustedProxyHops = Math.max(1, trustedProxyHops);
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        session.getAttributes().put(ATTR_OUT, new ConcurrentWebSocketSessionDecorator(
+                session, SEND_TIME_LIMIT_MS, 4 * chunkSize));
+
         String ip = clientIp(session);
         if (ip == null) {
             log.warn("Connection {}: no client IP resolved; skipping rate limit", session.getId());
@@ -169,43 +188,85 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
             case AWAITING_TARGET -> {
                 session.getAttributes().put(ATTR_TARGET, bytes);
                 session.getAttributes().put(ATTR_STATE, State.PROCESSING);
-                triggerProcessing(session);
+                enqueue(session);
             }
             default -> session.close(new CloseStatus(1002, "unexpected_binary"));
         }
     }
 
-    /**
-     * Admit or reject on the I/O thread (a non-blocking {@code tryAcquire}), then hand the work
-     * to the orchestrator pool. Only admitted requests reach the pool, so it never has to queue
-     * behind a full server.
-     */
-    private void triggerProcessing(WebSocketSession session) {
-        if (!admissionSemaphore.tryAcquire()) {
-            sendJson(session, Map.of("type", "rejected", "reason", "server_busy"));
+    private void enqueue(WebSocketSession session) {
+        MosaicJob job = new MosaicJob(session);
+        session.getAttributes().put(ATTR_JOB, job);
+        if (!admissionQueue.submit(job)) {
+            dropImages(session);
+            sendJson(session, Map.of("type", "rejected", "reason", "queue_full"));
             silentClose(session);
-            return;
         }
-        requestExecutor.execute(() -> {
+    }
+
+    private final class MosaicJob implements AdmissionQueue.Job {
+
+        private final WebSocketSession session;
+        private boolean started;
+        private int lastPosition = Integer.MAX_VALUE;
+
+        MosaicJob(WebSocketSession session) {
+            this.session = session;
+        }
+
+        @Override
+        public synchronized void onQueuePosition(int position) {
+            if (started || position >= lastPosition) {
+                return;
+            }
+            lastPosition = position;
+            sendJson(session, Map.of("type", "queued", "position", position));
+        }
+
+        @Override
+        public void run() {
+            synchronized (this) {
+                started = true;
+            }
             try {
                 byte[] src = (byte[]) session.getAttributes().get(ATTR_SOURCE);
                 byte[] tgt = (byte[]) session.getAttributes().get(ATTR_TARGET);
+                if (!session.isOpen() || src == null || tgt == null) {
+                    return;
+                }
+                sendJson(session, Map.of("type", "processing"));
                 MosaicResult result = pipeline.process(src, tgt);
-                streamPayload(session, result);
+                usageStats.recordProcessed();
+                streamExecutor.execute(() -> {
+                    try {
+                        streamPayload(session, result);
+                    } catch (Exception e) {
+                        log.info("Streaming to session {} aborted: {}", session.getId(), e.getMessage());
+                        silentClose(session);
+                    }
+                });
             } catch (Exception e) {
-                log.error("Processing failed for session {}: {}", session.getId(), e.getMessage(), e);
-                sendJson(session, Map.of("type", "error", "reason", "processing_failed"));
-                silentClose(session);
+                reportFailure(session, e);
             } finally {
-                // Drop the (up to 10 MB each) image buffers as soon as we are done with them.
-                session.getAttributes().remove(ATTR_SOURCE);
-                session.getAttributes().remove(ATTR_TARGET);
-                admissionSemaphore.release();
+                dropImages(session);
             }
-        });
+        }
+    }
+
+    private void reportFailure(WebSocketSession session, Exception e) {
+        Throwable cause = e instanceof ExecutionException && e.getCause() != null ? e.getCause() : e;
+        if (cause instanceof IllegalArgumentException || cause instanceof IOException) {
+            log.warn("Rejected image for session {}: {}", session.getId(), cause.getMessage());
+            sendJson(session, Map.of("type", "error", "reason", "invalid_image"));
+        } else {
+            log.error("Processing failed for session {}: {}", session.getId(), e.getMessage(), e);
+            sendJson(session, Map.of("type", "error", "reason", "processing_failed"));
+        }
+        silentClose(session);
     }
 
     private void streamPayload(WebSocketSession session, MosaicResult result) throws IOException {
+        WebSocketSession out = out(session);
         ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES);
         header.putInt(MAGIC);
         header.putInt(PROTOCOL_VERSION);
@@ -216,7 +277,7 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
         header.putInt(result.tgtHeight());
         header.putInt(0); // reserved
         header.flip();
-        session.sendMessage(new BinaryMessage(header));
+        out.sendMessage(new BinaryMessage(header));
 
         ByteBuffer payload = result.payload();
         while (payload.hasRemaining()) {
@@ -224,7 +285,7 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
             byte[] chunk = new byte[size];
             payload.get(chunk);
             boolean isLast = !payload.hasRemaining();
-            session.sendMessage(new BinaryMessage(chunk, isLast));
+            out.sendMessage(new BinaryMessage(chunk, isLast));
         }
 
         sendJson(session, Map.of("type", "complete", "particle_count", result.particleCount()));
@@ -236,6 +297,10 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+        if (session.getAttributes().get(ATTR_JOB) instanceof MosaicJob job) {
+            admissionQueue.cancel(job);
+        }
+        dropImages(session);
         log.info("Session {} closed: {}", session.getId(), status);
     }
 
@@ -243,10 +308,20 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
         return (State) session.getAttributes().get(ATTR_STATE);
     }
 
+    private static WebSocketSession out(WebSocketSession session) {
+        Object out = session.getAttributes().get(ATTR_OUT);
+        return out instanceof WebSocketSession decorated ? decorated : session;
+    }
+
+    private static void dropImages(WebSocketSession session) {
+        session.getAttributes().remove(ATTR_SOURCE);
+        session.getAttributes().remove(ATTR_TARGET);
+    }
+
     private void sendJson(WebSocketSession session, Map<String, ?> data) {
         try {
-            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(data)));
-        } catch (IOException e) {
+            out(session).sendMessage(new TextMessage(objectMapper.writeValueAsString(data)));
+        } catch (Exception e) {
             // Client may have disconnected mid-exchange; nothing useful to do.
         }
     }
@@ -266,9 +341,17 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
     }
 
     private String clientIp(WebSocketSession session) {
-        List<String> forwarded = session.getHandshakeHeaders().get("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isEmpty() && !forwarded.get(0).isBlank()) {
-            return forwarded.get(0).split(",")[0].trim();
+        List<String> headers = session.getHandshakeHeaders().get("X-Forwarded-For");
+        if (headers != null) {
+            List<String> hops = headers.stream()
+                    .flatMap(h -> Arrays.stream(h.split(",")))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .toList();
+            if (!hops.isEmpty()) {
+                log.debug("Connection {}: X-Forwarded-For {}", session.getId(), hops);
+                return hops.get(Math.max(0, hops.size() - trustedProxyHops));
+            }
         }
         if (behindProxy) {
             return null;

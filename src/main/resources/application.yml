@@ -9,8 +9,12 @@ server:
 pixelmosaic:
   model-path: classpath:models/u2netp.onnx
   max-concurrent: 2
+  max-queued: 8
+  max-streams: 16
   rate-limit-per-hour: 30
   behind-proxy: true
+  trusted-proxy-hops: 1
+  admin-token: ${ADMIN_TOKEN:}
   max-image-bytes: 10485760
   max-pixels: 2000000
   chunk-size-bytes: 262144    # 256KB

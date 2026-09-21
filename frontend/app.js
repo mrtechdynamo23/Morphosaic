@@ -192,6 +192,7 @@ function connect() {
   payloadChunks = [];
   particleCount = 0;
   updateWorkingProgress(0);
+  updateWorkingText("Processing…");
   updateWorkingStatus("Connecting…");
 
   ws = new WebSocket(CONFIG.WS_URL);
@@ -235,22 +236,52 @@ function sendBeginRequest() {
   );
 }
 
+const ERROR_MESSAGES = {
+  queue_full:
+    "Lots of people are making mosaics right now and the line is full. Please try again in a minute.",
+  server_busy: "The server is busy. Please try again in a minute.",
+  invalid_image:
+    "One of the images couldn't be read, or its dimensions are too large (max 100 megapixels).",
+  source_too_large: "The source image is too large (max 10 MB).",
+  target_too_large: "The target image is too large (max 10 MB).",
+  unsupported_source_format: "The source image format isn't supported. Use JPEG, PNG, or WebP.",
+  unsupported_target_format: "The target image format isn't supported. Use JPEG, PNG, or WebP.",
+  processing_failed: "Something went wrong while building your mosaic. Please try again.",
+};
+
+function friendlyError(reason) {
+  return ERROR_MESSAGES[reason] || "Something went wrong. Please try again.";
+}
+
 function handleTextFrame(msg) {
   switch (msg.type) {
     case "accepted":
-      updateWorkingStatus("Generating segmentation mask…");
+      updateWorkingText("Uploading…");
+      updateWorkingStatus("Sending your images");
       ws.send(sourceFile.bytes);
       ws.send(targetFile.bytes);
       break;
+    case "queued":
+      updateWorkingText("You're in line");
+      updateWorkingStatus(
+        msg.position === 1
+          ? "You're next — starting as soon as a slot frees up"
+          : `#${msg.position} in the queue — ${msg.position - 1} ahead of you`
+      );
+      break;
+    case "processing":
+      updateWorkingText("Processing…");
+      updateWorkingStatus("Generating segmentation mask…");
+      break;
     case "rejected":
-      setState(STATES.ERROR, { reason: "Server busy. Try again shortly." });
+      setState(STATES.ERROR, { reason: friendlyError(msg.reason) });
       ws.close();
       break;
     case "complete":
       onPayloadComplete(msg.particle_count);
       break;
     case "error":
-      setState(STATES.ERROR, { reason: msg.reason || "Server error" });
+      setState(STATES.ERROR, { reason: friendlyError(msg.reason) });
       ws.close();
       break;
   }
@@ -349,6 +380,10 @@ function parsePayload(buffer, count) {
 // ===========================================================================
 // SECTION 5 — UI Helpers
 // ===========================================================================
+function updateWorkingText(text) {
+  document.getElementById("working-text").textContent = text;
+}
+
 function updateWorkingStatus(text) {
   document.getElementById("working-status").textContent = text;
 }

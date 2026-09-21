@@ -6,6 +6,9 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.zip.CRC32;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -46,6 +49,34 @@ class ImageDecoderTest {
         // Square input must stay (near) square after proportional downscale.
         assertEquals(dims[0], dims[1], "aspect ratio of a square image must be preserved");
         assertTrue(dims[0] < 2000, "image should have been downscaled");
+    }
+
+    @Test
+    void testRejectDecompressionBomb() {
+        byte[] bomb = pngHeaderOnly(50_000, 50_000);
+        assertTrue(bomb.length < 100);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> decoder.decodeToRaster(bomb, new int[2]));
+        assertTrue(e.getMessage().contains("too large"), e.getMessage());
+    }
+
+    @Test
+    void testSubsampledDecodeOfLargeImage() throws IOException {
+        BufferedImage big = new BufferedImage(6000, 6000, BufferedImage.TYPE_BYTE_BINARY);
+        byte[] png = encode(big, "png");
+        int[] dims = new int[2];
+        int[] raster = decoder.decodeToRaster(png, dims);
+
+        assertTrue((long) dims[0] * dims[1] <= ImageDecoder.MAX_PIXELS);
+        assertEquals(dims[0], dims[1]);
+        assertEquals(dims[0] * dims[1], raster.length);
+    }
+
+    @Test
+    void testRejectGarbage() {
+        byte[] garbage = "definitely not an image".getBytes();
+        assertThrows(IllegalArgumentException.class,
+                () -> decoder.decodeToRaster(garbage, new int[2]));
     }
 
     @Test
@@ -90,6 +121,20 @@ class ImageDecoderTest {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         assertTrue(ImageIO.write(img, format, baos), "no ImageIO writer for " + format);
         return baos.toByteArray();
+    }
+
+    private static byte[] pngHeaderOnly(int width, int height) {
+        ByteBuffer ihdr = ByteBuffer.allocate(17);
+        ihdr.put("IHDR".getBytes(StandardCharsets.US_ASCII));
+        ihdr.putInt(width).putInt(height);
+        ihdr.put((byte) 8).put((byte) 2).put((byte) 0).put((byte) 0).put((byte) 0);
+        CRC32 crc = new CRC32();
+        crc.update(ihdr.array());
+
+        ByteBuffer png = ByteBuffer.allocate(8 + 4 + 17 + 4);
+        png.put(new byte[]{(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'});
+        png.putInt(13).put(ihdr.array()).putInt((int) crc.getValue());
+        return png.array();
     }
 
     private static int gray(int v) {

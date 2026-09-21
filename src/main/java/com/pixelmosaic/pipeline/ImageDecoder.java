@@ -1,16 +1,21 @@
 package com.pixelmosaic.pipeline;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import java.awt.*;
 import java.awt.image.*;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Iterator;
 
 public final class ImageDecoder {
 
     public static final int MAX_BYTES = 10_485_760;
     public static final int MAX_PIXELS = 2_000_000;
     public static final int MAX_DIMENSION = 65_535;
+    public static final long MAX_SOURCE_PIXELS = 100_000_000L;
 
     public int[] decodeToRaster(byte[] imageBytes, int[] dimensionsOut) throws IOException {
         if (imageBytes == null) {
@@ -24,11 +29,7 @@ public final class ImageDecoder {
             throw new IllegalArgumentException("dimensionsOut must be an int[2]");
         }
 
-        BufferedImage image = ImageIO.read(new ByteArrayInputStream(imageBytes));
-        if (image == null) {
-            throw new IllegalArgumentException(
-                    "unrecognized or unsupported image format (expected JPEG, PNG, or WebP)");
-        }
+        BufferedImage image = readBounded(imageBytes);
 
         int width = image.getWidth();
         int height = image.getHeight();
@@ -55,6 +56,42 @@ public final class ImageDecoder {
         dimensionsOut[0] = width;
         dimensionsOut[1] = height;
         return argb;
+    }
+
+    private static BufferedImage readBounded(byte[] imageBytes) throws IOException {
+        try (ImageInputStream in = ImageIO.createImageInputStream(new ByteArrayInputStream(imageBytes))) {
+            Iterator<ImageReader> readers = in == null ? null : ImageIO.getImageReaders(in);
+            if (readers == null || !readers.hasNext()) {
+                throw new IllegalArgumentException(
+                        "unrecognized or unsupported image format (expected JPEG, PNG, or WebP)");
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(in, true, true);
+                long width = reader.getWidth(0);
+                long height = reader.getHeight(0);
+                if (width <= 0 || height <= 0) {
+                    throw new IllegalArgumentException("image has no pixels");
+                }
+                if (width * height > MAX_SOURCE_PIXELS) {
+                    throw new IllegalArgumentException(
+                            "image dimensions too large: " + width + "x" + height);
+                }
+
+                ImageReadParam param = reader.getDefaultReadParam();
+                int step = (int) Math.floor(Math.sqrt((double) (width * height) / MAX_PIXELS));
+                if (step > 1) {
+                    param.setSourceSubsampling(step, step, 0, 0);
+                }
+                BufferedImage image = reader.read(0, param);
+                if (image == null) {
+                    throw new IllegalArgumentException("image could not be decoded");
+                }
+                return image;
+            } finally {
+                reader.dispose();
+            }
+        }
     }
 
     private static int[] extractArgb(BufferedImage image, int width, int height) {

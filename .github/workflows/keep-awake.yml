@@ -1,0 +1,27 @@
+name: Keep Space awake
+
+on:
+  schedule:
+    - cron: "0 */12 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping health endpoint
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 20 https://shreyasvn-pixel-mosaic.hf.space/health; then
+              echo
+              echo "Space is awake (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i failed; retrying in 15s"
+            sleep 15
+          done
+          echo "Space did not respond after 12 attempts"
+          exit 1
