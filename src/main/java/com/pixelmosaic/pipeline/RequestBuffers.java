@@ -4,7 +4,7 @@ import java.util.BitSet;
 
 final class RequestBuffers {
 
-    static final int DEFAULT_MAX_PIXELS = 2_000_000;
+    static final int DEFAULT_MAX_PIXELS = ImageDecoder.MAX_PIXELS;
 
     final long[] sourceData;
     final long[] targetData;

@@ -24,9 +24,33 @@ class MosaicMapperTest {
 
         int tgtLen = buf.tgtPixelCount;
         assertEquals(tgtLen * MosaicMapper.BYTES_PER_PARTICLE, out.capacity(),
-                "one 12-byte particle per target pixel");
-        assertEquals(0, out.position(), "flip() should rewind position to 0");
-        assertEquals(out.capacity(), out.limit(), "flip() should set limit to bytes written");
+                "one particle per target pixel");
+        assertEquals(0, out.position());
+        assertEquals(out.capacity(), out.limit());
+    }
+
+    @Test
+    void testParticlesInTargetRasterOrder() throws Exception {
+        int srcW = 12, srcH = 9, srcFg = 40, tgtW = 20, tgtH = 15, tgtFg = 110;
+        RequestBuffers buf = buildBuffer(srcW, srcH, srcFg, tgtW, tgtH, tgtFg);
+        ByteBuffer out = mapper.map(buf);
+
+        for (int slot = 0; slot < tgtW * tgtH; slot++) {
+            int off = slot * MosaicMapper.BYTES_PER_PARTICLE;
+            int srcX = out.getShort(off) & 0xFFFF;
+            int srcY = out.getShort(off + 2) & 0xFFFF;
+            assertTrue(srcX < srcW && srcY < srcH, "slot " + slot + " source out of range");
+
+            int srcPixel = srcY * srcW + srcX;
+            assertEquals(slot < tgtFg, srcPixel < srcFg,
+                    "slot " + slot + " must draw from the matching FG/BG lane");
+
+            int rgb = buf.sourceRaster[srcPixel] & 0xFFFFFF;
+            int wire = ((out.get(off + 4) & 0xFF) << 16)
+                    | ((out.get(off + 5) & 0xFF) << 8)
+                    | (out.get(off + 6) & 0xFF);
+            assertEquals(rgb, wire, "slot " + slot + " color must match its source pixel");
+        }
     }
 
     @Test

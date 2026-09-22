@@ -17,6 +17,16 @@ public final class ImageDecoder {
     public static final int MAX_DIMENSION = 65_535;
     public static final long MAX_SOURCE_PIXELS = 100_000_000L;
 
+    private final int maxPixels;
+
+    public ImageDecoder() {
+        this(MAX_PIXELS);
+    }
+
+    public ImageDecoder(int maxPixels) {
+        this.maxPixels = maxPixels;
+    }
+
     public int[] decodeToRaster(byte[] imageBytes, int[] dimensionsOut) throws IOException {
         if (imageBytes == null) {
             throw new IllegalArgumentException("imageBytes must not be null");
@@ -36,8 +46,8 @@ public final class ImageDecoder {
         int[] argb = extractArgb(image, width, height);
 
         double scale = 1.0;
-        if ((long) width * height > MAX_PIXELS) {
-            scale = Math.min(scale, Math.sqrt((double) MAX_PIXELS / ((double) width * height)));
+        if ((long) width * height > maxPixels) {
+            scale = Math.min(scale, Math.sqrt((double) maxPixels / ((double) width * height)));
         }
         if (width > MAX_DIMENSION) {
             scale = Math.min(scale, (double) MAX_DIMENSION / width);
@@ -58,7 +68,7 @@ public final class ImageDecoder {
         return argb;
     }
 
-    private static BufferedImage readBounded(byte[] imageBytes) throws IOException {
+    private BufferedImage readBounded(byte[] imageBytes) throws IOException {
         try (ImageInputStream in = ImageIO.createImageInputStream(new ByteArrayInputStream(imageBytes))) {
             Iterator<ImageReader> readers = in == null ? null : ImageIO.getImageReaders(in);
             if (readers == null || !readers.hasNext()) {
@@ -79,7 +89,7 @@ public final class ImageDecoder {
                 }
 
                 ImageReadParam param = reader.getDefaultReadParam();
-                int step = (int) Math.floor(Math.sqrt((double) (width * height) / MAX_PIXELS));
+                int step = (int) Math.floor(Math.sqrt((double) (width * height) / maxPixels));
                 if (step > 1) {
                     param.setSourceSubsampling(step, step, 0, 0);
                 }

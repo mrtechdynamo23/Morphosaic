@@ -11,7 +11,7 @@ public final class MosaicMapper {
 
     private static final Logger LOG = Logger.getLogger(MosaicMapper.class.getName());
 
-    static final int BYTES_PER_PARTICLE = 12;
+    public static final int BYTES_PER_PARTICLE = 7;
 
     public ByteBuffer map(RequestBuffers buf) throws Exception {
         int srcLen = buf.srcPixelCount;
@@ -36,7 +36,6 @@ public final class MosaicMapper {
         if (!(srcHasFG && srcHasBG && tgtHasFG && tgtHasBG)) {
             mapSingleLane(buf, output, srcLen, tgtLen,
                     srcHasFG, srcHasBG, tgtHasFG, tgtHasBG);
-            output.flip();
             return output;
         }
 
@@ -47,7 +46,6 @@ public final class MosaicMapper {
             int srcIdx = normalSrcIdx(i, srcLen, srcSplit, tgtSplit, fgRatio, bgRatio);
             writeParticle(buf, output, srcIdx, i);
         }
-        output.flip();
 
         logStats(buf, srcLen, tgtLen, srcSplit, tgtSplit, fgRatio, bgRatio);
         return output;
@@ -107,12 +105,12 @@ public final class MosaicMapper {
         int tgtX = PixelUtils.unpackX(tgtWord);
         int tgtY = PixelUtils.unpackY(tgtWord);
 
-        output.putShort((short) (srcX & 0xFFFF));
-        output.putShort((short) (srcY & 0xFFFF));
-        output.putShort((short) (tgtX & 0xFFFF));
-        output.putShort((short) (tgtY & 0xFFFF));
-        output.put(r).put(g).put(b);
-        output.put((byte) 0);
+        int off = (tgtY * buf.tgtWidth + tgtX) * BYTES_PER_PARTICLE;
+        output.putShort(off, (short) (srcX & 0xFFFF));
+        output.putShort(off + 2, (short) (srcY & 0xFFFF));
+        output.put(off + 4, r);
+        output.put(off + 5, g);
+        output.put(off + 6, b);
     }
 
     private void logStats(RequestBuffers buf, int srcLen, int tgtLen,

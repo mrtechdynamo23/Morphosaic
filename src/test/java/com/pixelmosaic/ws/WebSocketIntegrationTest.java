@@ -3,6 +3,7 @@ package com.pixelmosaic.ws;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixelmosaic.config.ModelLoader;
+import com.pixelmosaic.pipeline.MosaicMapper;
 import jakarta.websocket.ContainerProvider;
 import jakarta.websocket.WebSocketContainer;
 import org.junit.jupiter.api.Test;
@@ -42,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @EnabledIf("modelAvailable")
 class WebSocketIntegrationTest {
 
-    private static final int MAGIC = 0x4D4F5301;
+    private static final int MAGIC = 0x4D4F5302;
 
     @LocalServerPort
     private int port;
@@ -68,8 +69,8 @@ class WebSocketIntegrationTest {
             assertEquals("complete", handler.terminalType, "expected a completion, not an error");
             assertEquals(MAGIC, handler.headerMagic, "binary header magic mismatch");
             assertTrue(handler.particleCount > 0, "particle_count should be > 0");
-            assertEquals((long) handler.particleCount * 12, handler.payloadBytes,
-                    "payload bytes should equal particleCount * 12");
+            assertEquals((long) handler.particleCount * MosaicMapper.BYTES_PER_PARTICLE, handler.payloadBytes,
+                    "payload bytes should equal particleCount * BYTES_PER_PARTICLE");
             assertEquals((handler.payloadBytes + 262_143) / 262_144, handler.payloadFrames,
                     "payload should arrive as one message per 256 KB chunk");
             assertTrue(handler.payloadFrames > 1, "test payload should span several chunks");

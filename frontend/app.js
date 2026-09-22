@@ -14,10 +14,12 @@ const CONFIG = {
   ACCEPTED_TYPES: ["image/jpeg", "image/png", "image/webp"],
   CHUNK_SIZE: 262144,
   HEADER_BYTES: 32,
-  BYTES_PER_PARTICLE: 12,
+  BYTES_PER_PARTICLE: 7,
+  MAX_UPLOAD_PIXELS: 2_000_000,
+  UPLOAD_JPEG_QUALITY: 0.9,
 };
 
-const MAGIC = 0x4d4f5301;
+const MAGIC = 0x4d4f5302;
 const LITTLE_ENDIAN = false;
 
 // ===========================================================================
@@ -93,22 +95,68 @@ function handleFileSelect(event, slot) {
     return;
   }
 
-  const reader = new FileReader();
-  reader.onload = () => {
-    const record = {
-      name: file.name,
-      bytes: reader.result,
-      type: file.type,
-      size: file.size,
-    };
-    if (slot === "source") sourceFile = record;
-    else targetFile = record;
+  const token = (selectTokens[slot] = (selectTokens[slot] || 0) + 1);
+  prepareUpload(file)
+    .then((record) => {
+      if (selectTokens[slot] !== token) return;
+      if (slot === "source") sourceFile = record;
+      else targetFile = record;
 
-    showThumbnail(slot, file);
-    checkBothReady();
-  };
-  reader.onerror = () => showFileError(slot, "Could not read file");
-  reader.readAsArrayBuffer(file);
+      showThumbnail(slot, file);
+      checkBothReady();
+    })
+    .catch(() => {
+      if (selectTokens[slot] === token) showFileError(slot, "Could not read file");
+    });
+}
+
+const selectTokens = {};
+
+async function prepareUpload(file) {
+  const original = async () => ({
+    name: file.name,
+    bytes: await file.arrayBuffer(),
+    type: file.type,
+    size: file.size,
+  });
+
+  if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") {
+    return original();
+  }
+
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return original();
+  }
+
+  try {
+    const { width, height } = bitmap;
+    if (width * height <= CONFIG.MAX_UPLOAD_PIXELS) return original();
+
+    const scale = Math.sqrt(CONFIG.MAX_UPLOAD_PIXELS / (width * height));
+    const w = Math.max(1, Math.floor(width * scale));
+    const h = Math.max(1, Math.floor(height * scale));
+
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bitmap, 0, 0, w, h);
+
+    const type = file.type === "image/png" ? "image/png" : "image/jpeg";
+    const blob = await canvas.convertToBlob({ type, quality: CONFIG.UPLOAD_JPEG_QUALITY });
+    return {
+      name: file.name,
+      bytes: await blob.arrayBuffer(),
+      type,
+      size: blob.size,
+    };
+  } catch {
+    return original();
+  } finally {
+    bitmap.close();
+  }
 }
 
 function showThumbnail(slot, file) {
@@ -368,11 +416,11 @@ function parsePayload(buffer, count) {
     const off = i * CONFIG.BYTES_PER_PARTICLE;
     startX[i] = view.getUint16(off, LITTLE_ENDIAN) / srcW; // normalize [0,1]
     startY[i] = view.getUint16(off + 2, LITTLE_ENDIAN) / srcH;
-    endX[i] = view.getUint16(off + 4, LITTLE_ENDIAN) / tgtW;
-    endY[i] = view.getUint16(off + 6, LITTLE_ENDIAN) / tgtH;
-    colors[i * 3] = view.getUint8(off + 8) / 255;
-    colors[i * 3 + 1] = view.getUint8(off + 9) / 255;
-    colors[i * 3 + 2] = view.getUint8(off + 10) / 255;
+    endX[i] = (i % tgtW) / tgtW;
+    endY[i] = Math.floor(i / tgtW) / tgtH;
+    colors[i * 3] = view.getUint8(off + 4) / 255;
+    colors[i * 3 + 1] = view.getUint8(off + 5) / 255;
+    colors[i * 3 + 2] = view.getUint8(off + 6) / 255;
   }
   return { startX, startY, endX, endY, colors };
 }

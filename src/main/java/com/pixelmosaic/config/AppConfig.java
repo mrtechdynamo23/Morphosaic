@@ -92,8 +92,8 @@ public class AppConfig {
     }
 
     @Bean
-    public ImageDecoder imageDecoder() {
-        return new ImageDecoder();
+    public ImageDecoder imageDecoder(@Value("${pixelmosaic.max-pixels}") int maxPixels) {
+        return new ImageDecoder(maxPixels);
     }
 
     @Bean

@@ -115,14 +115,11 @@ public final class PipelineSmokeTest {
         for (int p = 0; p < show; p++) {
             int srcX = rp.getShort() & 0xFFFF;
             int srcY = rp.getShort() & 0xFFFF;
-            int tgtX = rp.getShort() & 0xFFFF;
-            int tgtY = rp.getShort() & 0xFFFF;
             int r = rp.get() & 0xFF;
             int g = rp.get() & 0xFF;
             int b = rp.get() & 0xFF;
-            rp.get(); // reserved
-            System.out.printf("Particle %d: src(%d,%d)->tgt(%d,%d) rgb(%d,%d,%d)%n",
-                    p, srcX, srcY, tgtX, tgtY, r, g, b);
+            System.out.printf("Particle %d: src(%d,%d)->tgt#%d rgb(%d,%d,%d)%n",
+                    p, srcX, srcY, p, r, g, b);
         }
     }
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pixelmosaic.admission.AdmissionQueue;
 import com.pixelmosaic.admission.RateLimiterService;
+import com.pixelmosaic.pipeline.MosaicMapper;
 import com.pixelmosaic.pipeline.MosaicPipeline;
 import com.pixelmosaic.pipeline.MosaicResult;
 import com.pixelmosaic.stats.UsageStats;
@@ -53,7 +54,7 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
     private static final Logger log = LoggerFactory.getLogger(MosaicWebSocketHandler.class);
 
     /** Binary protocol header: magic bytes "MOS\1". */
-    private static final int MAGIC = 0x4D4F5301;
+    private static final int MAGIC = 0x4D4F5302;
     private static final int PROTOCOL_VERSION = 1;
     private static final int HEADER_BYTES = 32;
 
@@ -289,7 +290,7 @@ public class MosaicWebSocketHandler extends AbstractWebSocketHandler {
         sendJson(session, Map.of("type", "complete", "particle_count", result.particleCount()));
         log.info("Streamed {} particles ({} MB) to session {}",
                 result.particleCount(),
-                String.format("%.2f", result.particleCount() * 12 / 1_048_576.0),
+                String.format("%.2f", result.particleCount() * MosaicMapper.BYTES_PER_PARTICLE / 1_048_576.0),
                 session.getId());
     }
 
