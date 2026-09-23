@@ -15,9 +15,9 @@ jobs:
       - name: Ping health endpoint
         run: |
           for i in $(seq 1 12); do
-            if curl -fsS --max-time 20 https://shreyasvn-pixel-mosaic.hf.space/health; then
+            if curl -fsS --max-time 20 https://morphosaic-backend.onrender.com/health; then
               echo
-              echo "Space is awake (attempt $i)"
+              echo "Backend is awake (attempt $i)"
               exit 0
             fi
             echo "Attempt $i failed; retrying in 15s"
