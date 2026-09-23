@@ -1,4 +1,4 @@
-# Pixel Mosaic — Complete Project Reference Document
+# Morphosaic — Complete Project Reference Document
 
 This is the authoritative pre-implementation document. Everything decided across this entire design process is consolidated here. If something is not mentioned here, it has not been decided and needs to be before that piece is coded.
 
@@ -8,7 +8,7 @@ This is the authoritative pre-implementation document. Everything decided across
 
 ## The Concept
 
-Pixel Mosaic is an image transformation system. It takes two images as input — a **Source** and a **Target** — and reconstructs the Target's visual shape and structure using exclusively the pixels belonging to the Source image. No new colors are invented. No blending occurs. Every pixel in the output is a real pixel taken from the Source, repositioned to form the Target's silhouette.
+Morphosaic is an image transformation system. It takes two images as input — a **Source** and a **Target** — and reconstructs the Target's visual shape and structure using exclusively the pixels belonging to the Source image. No new colors are invented. No blending occurs. Every pixel in the output is a real pixel taken from the Source, repositioned to form the Target's silhouette.
 
 The name for this technique is a **pixel mosaic**: the Source image is the palette of tiles, and the Target image provides the blueprint of where each tile goes.
 

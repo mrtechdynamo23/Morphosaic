@@ -1,8 +1,8 @@
 <p align="center">
-  <img src=".github/assets/logo.svg" width="96" alt="Pixel Mosaic logo" />
+  <img src=".github/assets/logo.svg" width="96" alt="Morphosaic logo" />
 </p>
 
-<h1 align="center">Pixel Mosaic</h1>
+<h1 align="center">Morphosaic</h1>
 
 <p align="center">
   <strong>Rebuild any image out of another image's pixels</strong> — streamed to your browser
@@ -26,7 +26,7 @@
 
 ---
 
-Pick two photos: a **source** and a **target**. Pixel Mosaic finds the subject of each with an
+Pick two photos: a **source** and a **target**. Morphosaic finds the subject of each with an
 AI saliency model, then rebuilds the target using only pixels taken from the source. Foreground
 pixels go to the foreground and background to background, matched by brightness and hue. You
 then watch a ten-second animation of every pixel flying into its new place.
@@ -135,8 +135,8 @@ docker run --rm -p 8080:7860 ghcr.io/shreyasnandurkar/pixel-mosaic:latest
 or build it from source:
 
 ```bash
-docker build -t pixel-mosaic .
-docker run --rm -p 8080:7860 pixel-mosaic
+docker build -t morphosaic .
+docker run --rm -p 8080:7860 morphosaic
 ```
 
 **2. Serve the frontend** from `localhost`. It connects to the backend on `localhost:8080`

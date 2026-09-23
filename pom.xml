@@ -11,9 +11,10 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.shreyasnandurkar</groupId>
-    <artifactId>pixel-mosaic</artifactId>
+    <groupId>com.mrtechdynamo23</groupId>
+    <artifactId>morphosaic</artifactId>
     <version>1.0-SNAPSHOT</version>
+    <name>Morphosaic</name>
     <packaging>jar</packaging>
 
     <properties>
