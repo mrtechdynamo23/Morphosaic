@@ -14,5 +14,5 @@ COPY --from=build /app/target/*.jar app.jar
 ENV PORT=7860
 EXPOSE 7860
 
-# Memory tuned to fit comfortably within 512 MB free tier (e.g. Render / Koyeb)
-ENTRYPOINT ["java", "-Xmx350m", "-XX:MaxDirectMemorySize=64m", "-jar", "app.jar"]
+# Memory tuned for 512 MB free tier (SerialGC, reduced stacks, 200MB max heap)
+ENTRYPOINT ["java", "-XX:+UseSerialGC", "-Xss256k", "-Xmx200m", "-XX:MaxDirectMemorySize=32m", "-XX:MaxMetaspaceSize=64m", "-jar", "app.jar"]

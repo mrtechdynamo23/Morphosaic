@@ -2,20 +2,20 @@ server:
   port: ${PORT:8080}
   tomcat:
     threads:
-      max: 50
-      min-spare: 10
+      max: 10
+      min-spare: 2
     connection-timeout: 10s
 
 pixelmosaic:
   model-path: classpath:models/u2netp.onnx
-  max-concurrent: 2
-  max-queued: 8
-  max-streams: 16
+  max-concurrent: 1
+  max-queued: 4
+  max-streams: 4
   rate-limit-per-hour: 30
   trusted-proxy-hops: 0
   admin-token: ${ADMIN_TOKEN:}
   max-image-bytes: 10485760
-  max-pixels: 2000000
+  max-pixels: 1000000
   chunk-size-bytes: 262144    # 256KB
   allowed-origins: "http://localhost:*,http://127.0.0.1:*,https://shreyasnandurkar.github.io,https://mrtechdynamo23.github.io"
 
