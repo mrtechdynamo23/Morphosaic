@@ -5,7 +5,7 @@ import * as THREE from "three";
 // ===========================================================================
 const CONFIG = {
   WS_URL:
-    location.hostname === "localhost" || location.hostname === "127.0.0.1"
+    new URLSearchParams(location.search).get("backend") === "local"
       ? "ws://localhost:8080/ws/mosaic"
       : "wss://morphosaic-backend.onrender.com/ws/mosaic",
   ANIMATION_DURATION_MS: 10000,
