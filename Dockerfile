@@ -14,5 +14,5 @@ COPY --from=build /app/target/*.jar app.jar
 ENV PORT=7860
 EXPOSE 7860
 
-# 16 GB free on HF; cap heap/direct sensibly (ONNX also uses off-heap native memory).
-ENTRYPOINT ["java", "-Xmx2g", "-XX:MaxDirectMemorySize=512m", "-jar", "app.jar"]
+# Memory tuned to fit comfortably within 512 MB free tier (e.g. Render / Koyeb)
+ENTRYPOINT ["java", "-Xmx350m", "-XX:MaxDirectMemorySize=64m", "-jar", "app.jar"]
