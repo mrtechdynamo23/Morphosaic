@@ -51,8 +51,13 @@ class OnnxMaskGeneratorTest {
         float[] values = new float[MASK_FLOATS];
         Arrays.fill(values, fill);
 
-        OnnxTensor output = mock(OnnxTensor.class);
-        when(output.getFloatBuffer()).thenReturn(FloatBuffer.wrap(values));
+        java.nio.FloatBuffer buf = java.nio.ByteBuffer
+                .allocateDirect(MASK_FLOATS * Float.BYTES)
+                .order(java.nio.ByteOrder.nativeOrder())
+                .asFloatBuffer();
+        buf.put(values).flip();
+        long[] shape = {1, 1, 320, 320};
+        OnnxTensor output = OnnxTensor.createTensor(env, buf, shape);
 
         OrtSession.Result result = mock(OrtSession.Result.class);
         when(result.get(0)).thenReturn(output);

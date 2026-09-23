@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://shreyasnandurkar.github.io/pixel-mosaic/">
-    <img src="https://img.shields.io/badge/%E2%96%B6%20%20Try%20Now-38C8E6?style=for-the-badge" height="44" alt="Try Now" />
+  <a href="https://mrtechdynamo23.github.io/Morphosaic/">
+    <img src="https://img.shields.io/badge/%E2%96%B6%20%20Try%20Now-A855F7?style=for-the-badge" height="44" alt="Try Now" />
   </a>
 </p>
 
@@ -191,6 +191,6 @@ ARCHITECTURE.md               full technical design
 
 ## 📄 License
 
-Released under the [MIT License](LICENSE) © 2026 Shreyas Nandurkar.
+Released under the [MIT License](LICENSE) © 2026 Sudharrshan.
 
 <p align="center"><sub>Made with ♥ — every pixel counts.</sub></p>
